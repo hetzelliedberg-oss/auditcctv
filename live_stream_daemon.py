@@ -315,12 +315,32 @@ class CameraWorker(threading.Thread):
                 logger.error(f"Worker exception for {self.camera_name}: {e}")
                 time.sleep(5)
 
+def start_self_keep_alive_bot(target_url: str = "https://auditcctv.streamlit.app/_stcore/health"):
+    """Internal 24/7 Auto-Bot Trigger that pings Streamlit Cloud to prevent hibernation."""
+    def pinger():
+        logger.info(f"🤖 [Auto-Bot Trigger] Activated! Pinging {target_url} every 4 minutes 24/7...")
+        import requests
+        while True:
+            time.sleep(240) # Every 4 minutes
+            try:
+                res = requests.get(target_url, timeout=8)
+                logger.info(f"🤖 [Auto-Bot Ping] {target_url} -> Status: {res.status_code}")
+            except Exception as e:
+                logger.debug(f"🤖 [Auto-Bot Ping Error]: {e}")
+    t = threading.Thread(target=pinger, daemon=True)
+    t.start()
+
 class MultiCameraSupervisor:
     def __init__(self):
         self.workers = {}
+        self.bot_started = False
 
     def run(self):
         logger.info("Starting MultiCameraSupervisor with Auto-Device Discovery...")
+        if not self.bot_started:
+            start_self_keep_alive_bot()
+            self.bot_started = True
+
         while True:
             try:
                 online_cams = get_online_cameras(force_refresh=True)

@@ -71,6 +71,14 @@ st.markdown("""
         margin-bottom: 8px;
     }
 </style>
+<script>
+    // 24/7 Browser Heartbeat Keep-Alive
+    setInterval(function() {
+        try {
+            fetch(window.location.origin + '/_stcore/health').catch(function(){});
+        } catch(e) {}
+    }, 45000);
+</script>
 """, unsafe_allow_html=True)
 
 # Fetch Fact Data from SQLite
