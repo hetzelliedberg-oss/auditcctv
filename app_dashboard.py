@@ -17,6 +17,8 @@ st.set_page_config(
     page_icon="🎥",
     layout="wide",
     initial_sidebar_state="expanded"
+)
+
 # Auto-start Multi-Camera AI Supervisor in background thread on server startup
 @st.cache_resource
 def ensure_cctv_daemon_running():
