@@ -24,7 +24,7 @@ class H264VideoWriter:
     def _init_writer(self):
         try:
             os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
-            self.container = av.open(self.output_path, mode='w')
+            self.container = av.open(self.output_path, mode='w', options={'movflags': '+faststart'})
             self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.width = self.width
             self.stream.height = self.height

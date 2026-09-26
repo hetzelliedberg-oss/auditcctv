@@ -10,7 +10,8 @@ import streamlit.components.v1 as components
 
 from camera_auto_stream import capture_live_frame, get_camera_stream_url, execute_auto_workflow_for_camera
 from session_manager import session_mgr, DB_PATH
-from device_sync import get_cameras, get_all_devices, refresh_device_list_from_cloud
+from device_sync import get_cameras, get_all_devices, refresh_device_list_from_cloud, get_online_cameras
+from time_utils import now_bkk, bkk_str, bkk_time_str, from_timestamp_bkk
 
 st.set_page_config(
     page_title="ระบบวิเคราะห์กล้องวงจรปิด AI & Live Fact Engine",
@@ -309,23 +310,28 @@ with col_live:
         
         @st.fragment(run_every="1s")
         def render_dual_grid():
-            online_c = [c for c in CAMERAS if c.get("isOnline")]
+            online_c = get_online_cameras()
             if not online_c:
-                st.info("ไม่มีกล้องออนไลน์ขณะนี้")
+                st.info("ไม่มีกล้องออนไลน์ขณะนี้ (กำลังสแกนสัญญาณ...)")
                 return
             g_cols = st.columns(len(online_c))
             for i, c in enumerate(online_c):
                 with g_cols[i]:
                     c_did = c["did"]
-                    c_name = c["name"]
+                    c_name = c.get("name", f"กล้อง {c_did}")
                     c_file = f"data/live_cam_{c_did}.jpg"
                     if not os.path.exists(c_file):
                         c_file = "data/live_camera_frame.jpg"
                     if os.path.exists(c_file):
-                        mod_time = datetime.fromtimestamp(os.path.getmtime(c_file)).strftime("%H:%M:%S")
-                        st.image(c_file, caption=f"📹 {c_name} ({mod_time})", use_container_width=True)
+                        mod_time = from_timestamp_bkk(os.path.getmtime(c_file), "%H:%M:%S")
+                        try:
+                            with open(c_file, "rb") as f_img:
+                                img_data = f_img.read()
+                            st.image(img_data, caption=f"📹 {c_name} (เวลาสดไทย: {mod_time})", use_container_width=True)
+                        except Exception:
+                            st.image(c_file, caption=f"📹 {c_name} ({mod_time})", use_container_width=True)
                     else:
-                        st.info(f"📹 {c_name} (กำลังเตรียมสัญญาณ...)")
+                        st.info(f"📹 {c_name} (กำลังเตรียมสัญญาณสด...)")
 
         render_dual_grid()
 
@@ -339,8 +345,13 @@ with col_live:
                 cam_path = "data/live_camera_frame.jpg"
                 
             if os.path.exists(cam_path):
-                mod_time = datetime.fromtimestamp(os.path.getmtime(cam_path)).strftime("%Y-%m-%d %H:%M:%S")
-                st.image(cam_path, caption=f"ภาพสด Real-Time (อัปเดตอัตโนมัติรายวินาที: {mod_time})", use_container_width=True)
+                mod_time = from_timestamp_bkk(os.path.getmtime(cam_path), "%Y-%m-%d %H:%M:%S")
+                try:
+                    with open(cam_path, "rb") as f_img:
+                        img_data = f_img.read()
+                    st.image(img_data, caption=f"ภาพสด Real-Time (อัปเดตอัตโนมัติรายวินาที - เวลาไทย: {mod_time})", use_container_width=True)
+                except Exception:
+                    st.image(cam_path, caption=f"ภาพสด Real-Time ({mod_time})", use_container_width=True)
             else:
                 st.info(f"กำลังดึงสัญญาณสดจาก {target_cam}...")
 
@@ -418,62 +429,145 @@ def render_fact_section(filter_staff_active):
             if "สถานะ" in table_df.columns:
                 table_df["สถานะ"] = table_df["สถานะ"].apply(lambda x: "🟢 กำลังอยู่ในเฟรม" if x == "ACTIVE" else "⚪ สิ้นสุดการตรวจ")
 
-            st.dataframe(table_df, use_container_width=True, height=350)
+            st.dataframe(table_df, use_container_width=True, height=280)
 
-            csv = table_df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                label="📥 ดาวน์โหลดข้อมูลเป็น Excel / CSV",
-                data=csv,
-                file_name=f"store_analytics_facts_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+            c_down1, c_down2 = st.columns([1, 1])
+            with c_down1:
+                csv = table_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 ดาวน์โหลดข้อมูลเป็น Excel / CSV",
+                    data=csv,
+                    file_name=f"store_analytics_facts_{bkk_str('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+
+            # 🔍 Interactive Event Inspector directly in Tab 1
+            st.divider()
+            st.subheader("🔍 ตัวตรวจสอบหลักฐานเหตุการณ์ (คลิกดูภาพ & วิดีโอรายเจ้า)")
+            st.caption("เลือกดูคลิปวิดีโอและภาพถ่ายหลักฐานของแต่ละกลุ่มลูกค้า:")
+
+            party_opts = table_source["party_code"].tolist()
+            if party_opts:
+                sel_party = st.selectbox(
+                    "เลือกรหัสเจ้า (Party Code):",
+                    party_opts,
+                    format_func=lambda x: f"🏷️ {x} | {table_source.loc[table_source['party_code'] == x, 'camera_name'].values[0]} | เข้า: {table_source.loc[table_source['party_code'] == x, 'start_time'].values[0]} ({table_source.loc[table_source['party_code'] == x, 'people_count'].values[0]} คน)"
+                )
+                if sel_party:
+                    r_sel = table_source[table_source["party_code"] == sel_party].iloc[0]
+                    col_v, col_s = st.columns([1.2, 1])
+
+                    with col_v:
+                        st.markdown(f"##### 🎬 วิดีโอบันทึกเหตุการณ์: `{sel_party}`")
+                        c_list = []
+                        if "all_clips" in r_sel and r_sel["all_clips"]:
+                            try:
+                                c_list = json.loads(r_sel["all_clips"])
+                            except Exception:
+                                pass
+                        if not c_list and r_sel.get("clip_path"):
+                            c_list = [r_sel["clip_path"]]
+
+                        v_found = False
+                        for cp in c_list:
+                            if os.path.exists(cp):
+                                v_found = True
+                                st.video(cp)
+                                st.caption(f"📁 {os.path.basename(cp)} (H.264 Playable)")
+                        if not v_found:
+                            st.info("ℹ️ วิดีโอกำลังประมวลผล หรือถูกบันทึกในรอบถัดไป")
+
+                    with col_s:
+                        st.markdown(f"##### 📸 ลำดับภาพถ่ายหลักฐาน")
+                        s_list = []
+                        if "all_snapshots" in r_sel and r_sel["all_snapshots"]:
+                            try:
+                                s_list = json.loads(r_sel["all_snapshots"])
+                            except Exception:
+                                pass
+                        if not s_list and r_sel.get("snapshot_path"):
+                            s_list = [r_sel["snapshot_path"]]
+
+                        v_snaps = [s for s in s_list if os.path.exists(s)]
+                        if v_snaps:
+                            s_cols = st.columns(min(len(v_snaps), 2))
+                            for idx_s, s in enumerate(v_snaps):
+                                with s_cols[idx_s % len(s_cols)]:
+                                    label_s = "ตอนก้าวเข้า" if idx_s == 0 else ("ตอนเดินออก" if idx_s == len(v_snaps)-1 else f"นาทีที่ {idx_s*4}s")
+                                    try:
+                                        with open(s, "rb") as f_s:
+                                            s_bytes = f_s.read()
+                                        st.image(s_bytes, caption=f"📸 {label_s}", use_container_width=True)
+                                    except Exception:
+                                        st.image(s, caption=f"📸 {label_s}", use_container_width=True)
+                        else:
+                            st.info("ไม่มีภาพ Snapshot")
+
+                        st.markdown(f"""
+                        **สรุป Fact ประจำเจ้า:**
+                        - 📹 **กล้อง:** `{r_sel.get('camera_name')}`
+                        - ⏱️ **เวลาเข้า:** `{r_sel.get('start_time')}`
+                        - 🚪 **เวลาออก:** `{r_sel.get('end_time')}`
+                        - ⏳ **ระยะเวลา:** `{r_sel.get('duration_minutes')} นาที`
+                        - 👥 **จำนวนคน:** `{r_sel.get('people_count')} คน`
+                        """)
 
     with tab2:
-        st.subheader("หลักฐานภาพถ่าย Snapshot & วิดีโอคลิปบันทึกเหตุการณ์ (H.264 Playable)")
+        st.subheader("📸 แกลเลอรีภาพถ่าย & วิดีโอบันทึกเหตุการณ์ (เรียงลำดับเวลา)")
         if df_all.empty:
             st.info("ยังไม่มีข้อมูลหลักฐาน (เมื่อตรวจพบบุคคลจริง ภาพและคลิปจะแสดงที่นี่)")
         else:
-            cols = st.columns(3)
             for i, (idx, row) in enumerate(df_all.iterrows()):
-                with cols[i % 3]:
-                    cam_label = row.get("camera_name", "กล้องวงจรปิด")
-                    role_badge = "🧑‍💼 พนักงาน" if row.get("role") == "STAFF" else "👥 ลูกค้า"
-                    st.markdown(f"**กล้อง:** `{cam_label}` | **รหัส:** `{row['party_code']}` ({role_badge})")
-                    st.write(f"👥 มา {row['people_count']} คน | 👖 จับกางเกง {row['pants_touched']} ตัว")
-                    st.caption(f"⏱️ เวลา: {row['start_time']} (อยู่ {row['duration_minutes']} นาที)")
-                    
-                    # Snapshots Gallery
-                    snaps_list = []
-                    if "all_snapshots" in row and row["all_snapshots"]:
-                        try:
-                            snaps_list = json.loads(row["all_snapshots"])
-                        except Exception:
-                            pass
-                    if not snaps_list and row["snapshot_path"]:
-                        snaps_list = [row["snapshot_path"]]
-                        
-                    valid_snaps = [s for s in snaps_list if os.path.exists(s)]
-                    if valid_snaps:
-                        if len(valid_snaps) == 1:
-                            st.image(valid_snaps[0], use_container_width=True)
-                        else:
-                            st.image(valid_snaps[:4], caption=[os.path.basename(s).split("_")[-1].replace(".jpg", "") for s in valid_snaps[:4]], use_container_width=True)
-                        
-                    # Video Clips (supports single or multi-camera clips)
-                    clips_list = []
-                    if "all_clips" in row and row["all_clips"]:
-                        try:
-                            clips_list = json.loads(row["all_clips"])
-                        except Exception:
-                            pass
-                    if not clips_list and row["clip_path"]:
-                        clips_list = [row["clip_path"]]
-                        
-                    for c_path in clips_list:
-                        if os.path.exists(c_path):
-                            st.markdown(f"**🎬 วิดีโอบันทึกเหตุการณ์ ({os.path.basename(c_path)}):**")
-                            st.video(c_path)
-                    st.divider()
+                cam_label = row.get("camera_name", "กล้องวงจรปิด")
+                role_label = "🧑‍💼 น้องพนักงาน" if row.get("role") == "STAFF" else "👥 ลูกค้า"
+                title_expander = f"🎬 {row['party_code']} | {cam_label} | เข้า: {row['start_time']} ({role_label} {row['people_count']} คน)"
+                
+                with st.expander(title_expander, expanded=(i < 3)):
+                    c_left, c_right = st.columns([1.2, 1])
+                    with c_left:
+                        # Video Clips
+                        clips_list = []
+                        if "all_clips" in row and row["all_clips"]:
+                            try:
+                                clips_list = json.loads(row["all_clips"])
+                            except Exception:
+                                pass
+                        if not clips_list and row["clip_path"]:
+                            clips_list = [row["clip_path"]]
+
+                        has_v = False
+                        for c_path in clips_list:
+                            if os.path.exists(c_path):
+                                has_v = True
+                                st.video(c_path)
+                                st.caption(f"วิดีโอบันทึกเหตุการณ์: {os.path.basename(c_path)}")
+                        if not has_v:
+                            st.info("ℹ️ ไม่มีไฟล์วิดีโอ (อาจถูกหมุนเวียนลบตามระบบ FIFO)")
+
+                    with c_right:
+                        # Snapshots
+                        snaps_list = []
+                        if "all_snapshots" in row and row["all_snapshots"]:
+                            try:
+                                snaps_list = json.loads(row["all_snapshots"])
+                            except Exception:
+                                pass
+                        if not snaps_list and row["snapshot_path"]:
+                            snaps_list = [row["snapshot_path"]]
+
+                        valid_snaps = [s for s in snaps_list if os.path.exists(s)]
+                        if valid_snaps:
+                            gallery_cols = st.columns(min(len(valid_snaps), 2))
+                            for idx_s, s in enumerate(valid_snaps):
+                                with gallery_cols[idx_s % len(gallery_cols)]:
+                                    tag = "ตอนเข้า" if idx_s == 0 else ("ตอนออก" if idx_s == len(valid_snaps)-1 else f"จังหวะ {idx_s}")
+                                    try:
+                                        with open(s, "rb") as f_s:
+                                            st.image(f_s.read(), caption=f"📸 {tag}", use_container_width=True)
+                                    except Exception:
+                                        st.image(s, caption=f"📸 {tag}", use_container_width=True)
+
+                        st.caption(f"⏱️ เข้า: {row['start_time']} | ออก: {row['end_time']} | อยู่ {row['duration_minutes']} นาที | จับกางเกง: {row['pants_touched']} ตัว")
 
     with tab3:
         st.subheader("สถิติภาพรวมพฤติกรรมลูกค้า")

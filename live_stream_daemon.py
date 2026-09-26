@@ -26,6 +26,8 @@ from session_manager import session_mgr
 from video_recorder import H264VideoWriter
 from device_sync import get_online_cameras
 from telegram_alert import send_telegram_alert
+from time_utils import now_bkk, bkk_str, bkk_time_str
+from staff_matcher import staff_matcher
 
 sys.stdout.reconfigure(encoding='utf-8')
 logging.basicConfig(
@@ -58,12 +60,12 @@ def add_thai_watermark(frame, camera_name: str, did: str, person_count: int = 0,
 
         pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_img)
-        ts_now = time.strftime("%Y-%m-%d %H:%M:%S")
+        ts_now = bkk_str()
 
         left_text = f"📹 {camera_name} [DID: {did}]"
         if person_count > 0:
             if role == "STAFF":
-                status_text = f"🧑‍💼 พนักงานประจำจุด ({person_count} คน) | LIVE {ts_now}"
+                status_text = f"🧑‍💼 น้องพนักงาน ({person_count} คน) | LIVE {ts_now}"
                 status_color = (100, 200, 255)
             else:
                 status_text = f"🚨 ลูกค้าเข้าชม: {person_count} คน | LIVE {ts_now}"
@@ -74,11 +76,11 @@ def add_thai_watermark(frame, camera_name: str, did: str, person_count: int = 0,
 
         if THAI_FONT:
             draw.text((12, 11), left_text, font=THAI_FONT, fill=(0, 255, 180))
-            draw.text((w - 330, 11), status_text, font=THAI_FONT, fill=status_color)
+            draw.text((w - 360, 11), status_text, font=THAI_FONT, fill=status_color)
             return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         else:
             cv2.putText(frame, f"CAM: {did}", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 180), 2)
-            cv2.putText(frame, status_text, (w - 330, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
+            cv2.putText(frame, status_text, (w - 360, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
             return frame
     except Exception:
         return frame
@@ -163,17 +165,28 @@ class CameraWorker(threading.Thread):
                             smoothed_person_count = 0
                             recent_boxes = []
 
-                    # Staff Filter
+                    # Staff Filter with Visual Profile Matching
                     detected_role = "CUSTOMER"
                     if smoothed_person_count > 0 and self.staff_filter_enabled:
                         h, w = raw_frame.shape[:2]
                         for b in recent_boxes:
-                            xyxy = b.xyxy[0].cpu().numpy()
-                            cx = (xyxy[0] + xyxy[2]) / (2.0 * w)
-                            cy = (xyxy[1] + xyxy[3]) / (2.0 * h)
-                            # Bottom-right counter desk zone
-                            if cx > 0.72 and cy > 0.52:
+                            xyxy = b.xyxy[0].cpu().numpy().astype(int)
+                            x1, y1 = max(0, xyxy[0]), max(0, xyxy[1])
+                            x2, y2 = min(w, xyxy[2]), min(h, xyxy[3])
+                            crop = raw_frame[y1:y2, x1:x2]
+                            cx = (x1 + x2) / (2.0 * w)
+                            cy = (y1 + y2) / (2.0 * h)
+
+                            # Visual matching against female staff profile
+                            match_res = staff_matcher.match_person_crop(crop, cx, cy)
+                            if match_res["is_staff"]:
                                 detected_role = "STAFF"
+                                break
+
+                            # Standing counter / desk zone fallback
+                            if (cx > 0.70 and cy > 0.45) or (cx < 0.28 and cy > 0.40):
+                                detected_role = "STAFF"
+                                break
 
                     self.current_role = detected_role
                     display_frame = add_thai_watermark(raw_frame.copy(), self.camera_name, self.did, smoothed_person_count, detected_role)
@@ -192,7 +205,7 @@ class CameraWorker(threading.Thread):
 
                         if self.active_session is None:
                             # 🚀 PERSON DETECTED!
-                            start_dt = datetime.now()
+                            start_dt = now_bkk()
                             party_code = f"PTY-{start_dt.strftime('%y%m%d%H%M%S')}"
                             snap_path = os.path.join(SNAPSHOT_DIR, f"{party_code}_{self.did}_entry.jpg")
                             clip_path = os.path.join(CLIPS_DIR, f"{party_code}_{self.did}_clip.mp4")
@@ -272,7 +285,7 @@ class CameraWorker(threading.Thread):
                                     "pants_touched": 0,
                                     "entered_fitting_room": False,
                                     "start_time": self.active_session["start_time"],
-                                    "end_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "end_time": bkk_str(),
                                     "duration_minutes": round(total_dwell_sec / 60.0, 2)
                                 }, photo_path=self.active_session["snapshot_path"], video_path=self.active_session["clip_path"], is_exit_summary=True)
 

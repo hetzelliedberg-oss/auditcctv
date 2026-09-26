@@ -11,6 +11,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from time_utils import now_bkk, bkk_str
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "store_sessions.db")
 
@@ -110,8 +111,8 @@ class SessionManager:
         Starts a new session, or merges with an existing active/recent session across cameras.
         """
         recent = self.get_recent_session(camera_did, grace_seconds=grace_seconds, cross_camera=cross_camera)
-        now = datetime.now()
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        now = now_bkk()
+        now_str = bkk_str()
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -230,7 +231,7 @@ class SessionManager:
         conn.close()
 
     def touch_session(self, session_id: int):
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = bkk_str()
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("UPDATE sessions SET last_active_time = ?, end_time = ? WHERE id = ?", (now_str, now_str, session_id))
@@ -238,7 +239,7 @@ class SessionManager:
         conn.close()
 
     def close_session(self, session_id: int, final_duration_sec: float):
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = bkk_str()
         dur_min = round(final_duration_sec / 60.0, 2)
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
