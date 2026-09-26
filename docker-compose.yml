@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  cctv-store-ai:
+    build: .
+    container_name: mi-cctv-analytics
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./yolov8n.pt:/app/yolov8n.pt
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -1,0 +1,15 @@
+import socket
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+s.settimeout(2.0)
+hello = bytes.fromhex("21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+s.sendto(hello, ("192.168.1.120", 54321))
+data, addr = s.recvfrom(1024)
+print("Response from", addr)
+print("Length:", len(data))
+print("Raw Hex:", data.hex())
+print("Device ID (hex):", data[8:12].hex(), "Dec:", int.from_bytes(data[8:12], 'big'))
+print("Timestamp:", int.from_bytes(data[12:16], 'big'))
+print("Checksum/Token field:", data[16:32].hex())
+s.close()
