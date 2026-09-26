@@ -435,7 +435,7 @@ def render_fact_section(filter_staff_active):
             if "เข้าห้องลอง" in table_df.columns:
                 table_df["เข้าห้องลอง"] = table_df["เข้าห้องลอง"].apply(lambda x: "✅ ได้ลอง" if x == 1 else "❌ ไม่ได้ลอง")
             if "สถานะ" in table_df.columns:
-                table_df["สถานะ"] = table_df["สถานะ"].apply(lambda x: "🟢 กำลังอยู่ในเฟรม" if x == "ACTIVE" else "⚪ สิ้นสุดการตรวจ")
+                table_df["สถานะ"] = table_df["สถานะ"].apply(lambda x: "🟢 กำลังอยู่ในเฟรม" if x == "ACTIVE" else ("🚪 กำลังลองในห้องลอง" if x == "FITTING_ROOM" else "⚪ สิ้นสุดการตรวจ"))
 
             st.dataframe(table_df, use_container_width=True, height=280)
 

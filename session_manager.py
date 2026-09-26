@@ -243,7 +243,8 @@ class SessionManager:
         UPDATE sessions SET
             entered_fitting_room = 1,
             fitting_room_count = 1,
-            description = 'ลูกค้าเดินเข้าห้องลองกางเกง (โซนขวามือ)'
+            description = 'ลูกค้าเดินเข้าห้องลองกางเกง (ผ้าม่านขวาล่าง)',
+            status = 'FITTING_ROOM'
         WHERE id = ?
         """, (session_id,))
         conn.commit()

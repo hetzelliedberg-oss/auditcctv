@@ -250,27 +250,29 @@ class CameraWorker(threading.Thread):
                             cv2.imwrite(extra_snap_path, display_frame)
                             session_mgr.add_snapshot_to_session(self.active_session["id"], extra_snap_path)
 
-                        # 4. Fitting Room Detection (Right-hand zone cx >= 0.70)
+                        # 4. Fitting Room Detection (Curtain zone bottom-right cx >= 0.65, cy >= 0.40)
                         if detected_role == "CUSTOMER" and self.active_session is not None:
                             h, w = raw_frame.shape[:2]
                             for b in recent_boxes:
                                 xyxy = b.xyxy[0].cpu().numpy().astype(int)
                                 cx = (xyxy[0] + xyxy[2]) / (2.0 * w)
-                                if cx >= 0.70 and not self.active_session.get("entered_fitting_room"):
+                                cy = (xyxy[1] + xyxy[3]) / (2.0 * h)
+                                if cx >= 0.65 and cy >= 0.40 and not self.active_session.get("entered_fitting_room"):
                                     self.active_session["entered_fitting_room"] = True
                                     session_mgr.mark_fitting_room_entry(self.active_session["id"])
-                                    logger.info(f"🚪 [FITTING ROOM] Customer {self.active_session['party_code']} entered right-hand fitting room!")
+                                    logger.info(f"🚪 [FITTING ROOM] Customer {self.active_session['party_code']} entered fitting room (curtain zone bottom-right: cx={cx:.2f}, cy={cy:.2f})!")
                                     break
 
                         session_mgr.touch_session(self.active_session["id"])
 
                     elif self.active_session is not None:
-                        # Person temporarily absent
+                        # Person temporarily absent (e.g. inside fitting room or momentary occlusion)
                         if self.video_writer is not None:
                             self.video_writer.write_frame(display_frame)
 
-                        # Buffer check: Has person been gone for > 8.0 seconds continuously?
-                        if now - self.last_person_seen_time > 8.0:
+                        # Buffer check: Extended buffer (600s / 10 mins) if customer is in fitting room behind curtain!
+                        absence_threshold = 600.0 if self.active_session.get("entered_fitting_room") else 8.0
+                        if now - self.last_person_seen_time > absence_threshold:
                             # Capture Exit Snapshot
                             exit_snap_path = os.path.join(SNAPSHOT_DIR, f"{self.active_session['party_code']}_{self.did}_exit.jpg").replace("\\", "/")
                             cv2.imwrite(exit_snap_path, display_frame)
@@ -290,12 +292,14 @@ class CameraWorker(threading.Thread):
 
                             # Send Telegram alert for customers
                             if self.active_session.get("role") != "STAFF":
+                                is_fitting = self.active_session.get("entered_fitting_room", False)
+                                desc = "ลูกค้าเข้าลองกางเกงในห้องลอง (ผ้าม่านขวาล่าง)" if is_fitting else f"ลูกค้าเข้าชมพื้นที่ {self.active_session.get('camera_name', self.camera_name)} (เดินชม)"
                                 send_telegram_alert({
                                     "party_code": party_code,
                                     "people_count": self.active_session["people_count"],
-                                    "description": f"ลูกค้าเข้าชมพื้นที่ {self.active_session.get('camera_name', self.camera_name)} (จับกางเกง: 0 ตัว - เดินชม)",
-                                    "pants_touched": 0,
-                                    "entered_fitting_room": False,
+                                    "description": desc,
+                                    "pants_touched": 1 if is_fitting else 0,
+                                    "entered_fitting_room": is_fitting,
                                     "start_time": self.active_session["start_time"],
                                     "end_time": bkk_str(),
                                     "duration_minutes": round(total_dwell_sec / 60.0, 2)
