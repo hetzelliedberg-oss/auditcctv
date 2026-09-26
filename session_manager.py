@@ -236,6 +236,17 @@ class SessionManager:
         cursor = conn.cursor()
         cursor.execute("UPDATE sessions SET last_active_time = ?, end_time = ? WHERE id = ?", (now_str, now_str, session_id))
         conn.commit()
+    def mark_fitting_room_entry(self, session_id: int):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+        UPDATE sessions SET
+            entered_fitting_room = 1,
+            fitting_room_count = 1,
+            description = 'ลูกค้าเดินเข้าห้องลองกางเกง (โซนขวามือ)'
+        WHERE id = ?
+        """, (session_id,))
+        conn.commit()
         conn.close()
 
     def close_session(self, session_id: int, final_duration_sec: float):

@@ -250,6 +250,18 @@ class CameraWorker(threading.Thread):
                             cv2.imwrite(extra_snap_path, display_frame)
                             session_mgr.add_snapshot_to_session(self.active_session["id"], extra_snap_path)
 
+                        # 4. Fitting Room Detection (Right-hand zone cx >= 0.70)
+                        if detected_role == "CUSTOMER" and self.active_session is not None:
+                            h, w = raw_frame.shape[:2]
+                            for b in recent_boxes:
+                                xyxy = b.xyxy[0].cpu().numpy().astype(int)
+                                cx = (xyxy[0] + xyxy[2]) / (2.0 * w)
+                                if cx >= 0.70 and not self.active_session.get("entered_fitting_room"):
+                                    self.active_session["entered_fitting_room"] = True
+                                    session_mgr.mark_fitting_room_entry(self.active_session["id"])
+                                    logger.info(f"🚪 [FITTING ROOM] Customer {self.active_session['party_code']} entered right-hand fitting room!")
+                                    break
+
                         session_mgr.touch_session(self.active_session["id"])
 
                     elif self.active_session is not None:
