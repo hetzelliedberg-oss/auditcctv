@@ -470,12 +470,13 @@ def render_fact_section(filter_staff_active):
 
                         v_found = False
                         for cp in c_list:
+                            cp = cp.replace("\\", "/")
                             if os.path.exists(cp):
                                 v_found = True
                                 st.video(cp)
                                 st.caption(f"📁 {os.path.basename(cp)} (H.264 Playable)")
                         if not v_found:
-                            st.info("ℹ️ วิดีโอกำลังประมวลผล หรือถูกบันทึกในรอบถัดไป")
+                            st.info("ℹ️ กำลังประมวลผลไฟล์วิดีโอ หรือจัดเก็บบนระบบ")
 
                     with col_s:
                         st.markdown(f"##### 📸 ลำดับภาพถ่ายหลักฐาน")
@@ -488,7 +489,7 @@ def render_fact_section(filter_staff_active):
                         if not s_list and r_sel.get("snapshot_path"):
                             s_list = [r_sel["snapshot_path"]]
 
-                        v_snaps = [s for s in s_list if os.path.exists(s)]
+                        v_snaps = [s.replace("\\", "/") for s in s_list if os.path.exists(s.replace("\\", "/"))]
                         if v_snaps:
                             s_cols = st.columns(min(len(v_snaps), 2))
                             for idx_s, s in enumerate(v_snaps):
@@ -537,12 +538,13 @@ def render_fact_section(filter_staff_active):
 
                         has_v = False
                         for c_path in clips_list:
+                            c_path = c_path.replace("\\", "/")
                             if os.path.exists(c_path):
                                 has_v = True
                                 st.video(c_path)
                                 st.caption(f"วิดีโอบันทึกเหตุการณ์: {os.path.basename(c_path)}")
                         if not has_v:
-                            st.info("ℹ️ ไม่มีไฟล์วิดีโอ (อาจถูกหมุนเวียนลบตามระบบ FIFO)")
+                            st.info("ℹ️ กำลังประมวลผลไฟล์วิดีโอ หรือจัดเก็บบนระบบ")
 
                     with c_right:
                         # Snapshots
@@ -555,7 +557,7 @@ def render_fact_section(filter_staff_active):
                         if not snaps_list and row["snapshot_path"]:
                             snaps_list = [row["snapshot_path"]]
 
-                        valid_snaps = [s for s in snaps_list if os.path.exists(s)]
+                        valid_snaps = [s.replace("\\", "/") for s in snaps_list if os.path.exists(s.replace("\\", "/"))]
                         if valid_snaps:
                             gallery_cols = st.columns(min(len(valid_snaps), 2))
                             for idx_s, s in enumerate(valid_snaps):

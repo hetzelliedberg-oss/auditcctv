@@ -207,8 +207,8 @@ class CameraWorker(threading.Thread):
                             # 🚀 PERSON DETECTED!
                             start_dt = now_bkk()
                             party_code = f"PTY-{start_dt.strftime('%y%m%d%H%M%S')}"
-                            snap_path = os.path.join(SNAPSHOT_DIR, f"{party_code}_{self.did}_entry.jpg")
-                            clip_path = os.path.join(CLIPS_DIR, f"{party_code}_{self.did}_clip.mp4")
+                            snap_path = os.path.join(SNAPSHOT_DIR, f"{party_code}_{self.did}_entry.jpg").replace("\\", "/")
+                            clip_path = os.path.join(CLIPS_DIR, f"{party_code}_{self.did}_clip.mp4").replace("\\", "/")
 
                             # 1. Instant Entrance Snapshot
                             cv2.imwrite(snap_path, display_frame)
@@ -246,7 +246,7 @@ class CameraWorker(threading.Thread):
                             self.last_interval_snap_time = now
                             elapsed_sec = int(now - self.session_start_time)
                             extra_snap_name = f"{self.active_session['party_code']}_{self.did}_{elapsed_sec}s.jpg"
-                            extra_snap_path = os.path.join(SNAPSHOT_DIR, extra_snap_name)
+                            extra_snap_path = os.path.join(SNAPSHOT_DIR, extra_snap_name).replace("\\", "/")
                             cv2.imwrite(extra_snap_path, display_frame)
                             session_mgr.add_snapshot_to_session(self.active_session["id"], extra_snap_path)
 
@@ -272,7 +272,7 @@ class CameraWorker(threading.Thread):
                         # Buffer check: Has person been gone for > 8.0 seconds continuously?
                         if now - self.last_person_seen_time > 8.0:
                             # Capture Exit Snapshot
-                            exit_snap_path = os.path.join(SNAPSHOT_DIR, f"{self.active_session['party_code']}_{self.did}_exit.jpg")
+                            exit_snap_path = os.path.join(SNAPSHOT_DIR, f"{self.active_session['party_code']}_{self.did}_exit.jpg").replace("\\", "/")
                             cv2.imwrite(exit_snap_path, display_frame)
                             session_mgr.add_snapshot_to_session(self.active_session["id"], exit_snap_path)
 
