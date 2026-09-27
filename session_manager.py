@@ -89,8 +89,9 @@ class SessionManager:
                 
             end_time_str = sess.get("last_active_time") or sess.get("end_time") or sess.get("start_time")
             try:
+                now_dt = now_bkk().replace(tzinfo=None)
                 end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
-                if (datetime.now() - end_dt).total_seconds() <= grace_seconds:
+                if 0 <= (now_dt - end_dt).total_seconds() <= grace_seconds:
                     return sess
             except Exception:
                 pass
@@ -120,8 +121,9 @@ class SessionManager:
         if recent:
             # 🔄 FUSE / RESUME EXISTING SESSION
             sess_id = recent["id"]
+            now_naive = now.replace(tzinfo=None) if hasattr(now, 'tzinfo') and now.tzinfo else now
             start_dt = datetime.strptime(recent["start_time"], "%Y-%m-%d %H:%M:%S")
-            duration_minutes = round((now - start_dt).total_seconds() / 60.0, 2)
+            duration_minutes = round(max(0.0, (now_naive - start_dt).total_seconds()) / 60.0, 2)
             
             # Use max people only if confirmed
             confirmed_people = max(recent["people_count"], people_count)
