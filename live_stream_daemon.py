@@ -271,10 +271,10 @@ class CameraWorker(threading.Thread):
                                 session_mgr.add_snapshot_to_session(self.active_session["id"], extra_snap_path)
                                 logger.info(f"📸 Captured milestone snapshot at {m}s for {self.active_session['party_code']}")
 
-                        # 4. Fitting Room Detection (Curtain zone bottom-right cx >= 0.65, cy >= 0.40)
+                        # 4. Fitting Room Detection (Curtain & Mirror zone right side cx >= 0.70, cy >= 0.25)
                         if self.active_session is not None:
                             for b, cx, cy in customer_boxes:
-                                if cx >= 0.65 and cy >= 0.40 and not self.active_session.get("entered_fitting_room"):
+                                if ((cx >= 0.70 and cy >= 0.25) or (cx >= 0.65 and cy >= 0.40)) and not self.active_session.get("entered_fitting_room"):
                                     self.active_session["entered_fitting_room"] = True
                                     session_mgr.mark_fitting_room_entry(self.active_session["id"])
                                     logger.info(f"🚪 [FITTING ROOM] Customer {self.active_session['party_code']} entered fitting room (cx={cx:.2f}, cy={cy:.2f})!")
