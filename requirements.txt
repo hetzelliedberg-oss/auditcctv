@@ -10,3 +10,5 @@ av>=11.0.0
 pillow>=10.0.0
 cryptography>=41.0.0
 pycryptodome>=3.19.0
+# Trigger Cloud Container Full Rebuild - 2026-09-27T19:35:00
+

@@ -45,6 +45,15 @@ def generate_enc_signature(url, method, signed_nonce_str, params):
     return base64.b64encode(hashlib.sha1(signature_string.encode("utf-8")).digest()).decode()
 
 def execute_api_call(country, endpoint, params_data):
+    # HARD BLOCK: Permanently block any attempt to start camera streams on Xiaomi Cloud
+    if "miotspec/action" in endpoint:
+        try:
+            d = json.loads(params_data.get("data", "{}"))
+            if d.get("params", {}).get("aiid") == 1:
+                return {"code": -1, "message": "Start stream action permanently blocked"}
+        except Exception:
+            pass
+
     url = f"https://{country + '.' if country != 'cn' else ''}api.io.mi.com/app{endpoint}"
     
     agent = "APP/com.xiaomi.mihome APPV/10.5.201"
