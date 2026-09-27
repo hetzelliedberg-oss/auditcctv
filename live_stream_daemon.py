@@ -68,7 +68,7 @@ def add_thai_watermark(frame, camera_name: str, did: str, person_count: int = 0,
 
         left_text = f"📹 {camera_name} [DID: {did}]"
         if role == "STAFF":
-            status_text = f"🧑‍💼 น้องพนักงาน (ประจำเคาน์เตอร์) | ไม่มีลูกค้า | LIVE {ts_now}"
+            status_text = f"🧑‍💼 น้องพนักงาน (หน้าร้าน) | ไม่มีลูกค้า | LIVE {ts_now}"
             status_color = (100, 200, 255)
         elif role == "CUSTOMER" and person_count > 0:
             status_text = f"🚨 ลูกค้าเข้าชม: {person_count} คน | LIVE {ts_now}"
@@ -78,13 +78,19 @@ def add_thai_watermark(frame, camera_name: str, did: str, person_count: int = 0,
             status_color = (255, 255, 255)
 
         if THAI_FONT:
+            try:
+                bbox = draw.textbbox((0, 0), status_text, font=THAI_FONT)
+                text_w = bbox[2] - bbox[0]
+            except Exception:
+                text_w = 420
+            right_x = max(w - text_w - 15, 260)
             draw.text((12, 11), left_text, font=THAI_FONT, fill=(0, 255, 180))
-            draw.text((w - 420, 11), status_text, font=THAI_FONT, fill=status_color)
+            draw.text((right_x, 11), status_text, font=THAI_FONT, fill=status_color)
             return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         else:
             cv2.putText(frame, f"CAM: {did}", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 180), 2)
-            ascii_text = "STAFF COUNTER" if role == "STAFF" else (f"CUSTOMERS: {person_count}" if role == "CUSTOMER" else "EMPTY")
-            cv2.putText(frame, f"{ascii_text} | {ts_now}", (w - 380, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
+            ascii_text = "STAFF" if role == "STAFF" else (f"CUSTOMERS: {person_count}" if role == "CUSTOMER" else "EMPTY")
+            cv2.putText(frame, f"{ascii_text} | {ts_now}", (max(w - 380, 220), 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2)
             return frame
     except Exception:
         return frame
@@ -148,8 +154,8 @@ class CameraWorker(threading.Thread):
 
                     now = time.time()
 
-                    # High-frequency YOLO Person Detection (~7 FPS)
-                    if now - last_yolo_time >= 0.14:
+                    # Ultra-low CPU YOLO Person Detection (~1.25 FPS, <1% CPU)
+                    if now - last_yolo_time >= 0.80:
                         last_yolo_time = now
                         try:
                             results = self.model(raw_frame, imgsz=480, conf=0.42, verbose=False)
@@ -164,36 +170,81 @@ class CameraWorker(threading.Thread):
                                 cy = (xyxy[1] + xyxy[3]) / (2.0 * h)
                                 
                                 # Store front camera (262682799): ignore top mall corridor & mannequins
-                                if self.did == "262682799" and cy < 0.38:
+                                if self.did == "262682799" and cy < 0.35:
                                     continue
                                 filtered_boxes.append((b, cx, cy, xyxy))
                                 
                             staff_boxes = []
                             customer_boxes = []
                             
-                            for b, cx, cy, xyxy in filtered_boxes:
-                                is_staff = False
-                                if self.staff_filter_enabled:
+                            if self.did == "262682799":
+                                # STORE FRONT RULE: Only 1 staff member is assigned to the shop.
+                                if len(filtered_boxes) == 1:
+                                    b, cx, cy, xyxy = filtered_boxes[0]
                                     x1, y1 = max(0, xyxy[0]), max(0, xyxy[1])
                                     x2, y2 = min(w, xyxy[2]), min(h, xyxy[3])
                                     crop = raw_frame[y1:y2, x1:x2]
-                                    
-                                    # 1. Visual matching against staff profiles (red uniform / white polo)
-                                    match_res = staff_matcher.match_person_crop(crop, cx, cy)
-                                    if match_res["is_staff"]:
+                                    match_res = staff_matcher.match_person_crop(crop, cx, cy) if self.staff_filter_enabled else {"is_staff": False}
+
+                                    is_staff = False
+                                    # Sitting at cashier counter
+                                    if cx <= 0.52 and cy >= 0.45:
                                         is_staff = True
-                                    # 2. Store Front (262682799): Front cashier counter zone
-                                    elif self.did == "262682799" and cx <= 0.52 and cy >= 0.45:
+                                    # At middle jeans folding/ironing table
+                                    elif 0.38 <= cx <= 0.78 and cy >= 0.42:
                                         is_staff = True
-                                    # 3. Other cameras fallback desk zones
-                                    elif self.did != "262682799" and ((cx > 0.70 and cy > 0.45) or (cx < 0.28 and cy > 0.40)):
+                                    # Bottom-right counter boundary
+                                    elif cx >= 0.80 and cy >= 0.55:
                                         is_staff = True
+                                    # Visual profile (dark red / burgundy top, white collar, ponytail)
+                                    elif match_res.get("is_staff"):
+                                        is_staff = True
+
+                                    if is_staff:
+                                        staff_boxes.append((b, cx, cy))
+                                    else:
+                                        customer_boxes.append((b, cx, cy))
+
+                                elif len(filtered_boxes) >= 2:
+                                    # Multiple people present -> At least 1 customer is guaranteed!
+                                    # Identify the single staff member (at desk or closest to staff profile)
+                                    best_staff_idx = -1
+                                    best_score = -1.0
+                                    for idx, (b, cx, cy, xyxy) in enumerate(filtered_boxes):
+                                        score = 0.0
+                                        if cx <= 0.52 and cy >= 0.45:
+                                            score += 2.0
+                                        elif 0.38 <= cx <= 0.78 and cy >= 0.42:
+                                            score += 1.5
+                                        if self.staff_filter_enabled:
+                                            x1, y1 = max(0, xyxy[0]), max(0, xyxy[1])
+                                            x2, y2 = min(w, xyxy[2]), min(h, xyxy[3])
+                                            crop = raw_frame[y1:y2, x1:x2]
+                                            m = staff_matcher.match_person_crop(crop, cx, cy)
+                                            if m.get("is_staff"):
+                                                score += 2.0
+                                        if score > best_score:
+                                            best_score = score
+                                            best_staff_idx = idx
+
+                                    for idx, (b, cx, cy, xyxy) in enumerate(filtered_boxes):
+                                        if idx == best_staff_idx and best_score > 0.5:
+                                            staff_boxes.append((b, cx, cy))
+                                        else:
+                                            customer_boxes.append((b, cx, cy))
+
+                            else:
+                                # Other cameras (e.g. warehouse หลังบ้าน 1 / กล้อง 2)
+                                for b, cx, cy, xyxy in filtered_boxes:
+                                    is_staff = False
+                                    if self.staff_filter_enabled:
+                                        if (cx > 0.70 and cy > 0.45) or (cx < 0.28 and cy > 0.40):
+                                            is_staff = True
+                                    if is_staff:
+                                        staff_boxes.append((b, cx, cy))
+                                    else:
+                                        customer_boxes.append((b, cx, cy))
                                         
-                                if is_staff:
-                                    staff_boxes.append((b, cx, cy))
-                                else:
-                                    customer_boxes.append((b, cx, cy))
-                                    
                             raw_customer_count = len(customer_boxes)
                             staff_present = len(staff_boxes) > 0
                             
@@ -218,7 +269,7 @@ class CameraWorker(threading.Thread):
                         last_frame_save_time = now
                         cam_frame_path = f"data/live_cam_{self.did}.jpg"
                         cv2.imwrite(cam_frame_path, display_frame)
-                        if self.is_primary or self.did == "263288748":
+                        if self.is_primary or self.did == "262682799":
                             cv2.imwrite("data/live_camera_frame.jpg", display_frame)
 
                     # === REAL CUSTOMER SESSION STATE MACHINE ===
@@ -345,7 +396,7 @@ def auto_sync_to_github():
     def _sync():
         try:
             logger.info("☁️ [Auto-Sync] Syncing customer data to GitHub...")
-            cmd = 'git add data/store_sessions.db data/clips/ data/snapshots/ data/live_cam_*.jpg; git commit -m "Auto-record customer visit"; git push origin main'
+            cmd = 'git add data/store_sessions.db data/clips/ data/snapshots/ data/live_cam_*.jpg; git commit -m "Auto-record customer visit"; git push origin HEAD; git push origin main'
             subprocess.run(cmd, shell=True, capture_output=True, timeout=40)
             logger.info("☁️ [Auto-Sync] GitHub sync completed successfully!")
         except Exception as e:

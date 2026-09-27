@@ -20,16 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Autonomous 24/7 Eco Cloud Worker (Runs purely on Cloud with <1.5% CPU - 0% PC CPU/RAM)
-@st.cache_resource
-def ensure_cloud_worker_running():
-    from eco_cloud_worker import start_eco_worker_thread
-    return start_eco_worker_thread()
-
-try:
-    ensure_cloud_worker_running()
-except Exception:
-    pass
+# Ultra-lightweight Dashboard Mode (Zero CPU load on Streamlit Cloud)
 
 # Custom Styling
 st.markdown("""
