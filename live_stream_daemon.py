@@ -146,11 +146,17 @@ class CameraWorker(threading.Thread):
                 smoothed_person_count = 0
                 recent_boxes = []
 
+                fail_count = 0
                 while not self.stop_requested:
                     ret, raw_frame = cap.read()
                     if not ret or raw_frame is None:
-                        logger.warning(f"Frame drop on {self.camera_name}. Reconnecting...")
-                        break
+                        fail_count += 1
+                        if fail_count >= 15:
+                            logger.warning(f"Continuous frame drops ({fail_count}) on {self.camera_name}. Reconnecting...")
+                            break
+                        time.sleep(0.05)
+                        continue
+                    fail_count = 0
 
                     now = time.time()
 
@@ -169,8 +175,9 @@ class CameraWorker(threading.Thread):
                                 cx = (xyxy[0] + xyxy[2]) / (2.0 * w)
                                 cy = (xyxy[1] + xyxy[3]) / (2.0 * h)
                                 
-                                # Store front camera (262682799): ignore top mall corridor & mannequins
-                                if self.did == "262682799" and cy < 0.35:
+                                # Store front camera (262682799): ignore top mall corridor (white tiles cy < 0.48)
+                                # Only detect customers who actually walk onto the dark wood store floor (cy >= 0.48)
+                                if self.did == "262682799" and cy < 0.48:
                                     continue
                                 filtered_boxes.append((b, cx, cy, xyxy))
                                 
@@ -307,9 +314,11 @@ class CameraWorker(threading.Thread):
                             h, w = raw_frame.shape[:2]
                             self.video_writer = H264VideoWriter(clip_path, w, h, fps=15)
 
-                        # Write frame to video
-                        if self.video_writer is not None:
-                            self.video_writer.write_frame(display_frame)
+                        # Write frame to video (re-instantiate writer if it was None during active session)
+                        if self.video_writer is None:
+                            h, w = raw_frame.shape[:2]
+                            self.video_writer = H264VideoWriter(self.active_session["clip_path"], w, h, fps=15)
+                        self.video_writer.write_frame(display_frame)
 
                         # 3. Controlled Milestone Snapshots (Only at 5s, 15s, 30s, 60s - Max 4 photos! NO INFINITE SNAPSHOTS!)
                         elapsed_sec = int(now - self.session_start_time)
@@ -323,10 +332,11 @@ class CameraWorker(threading.Thread):
                                 session_mgr.add_snapshot_to_session(self.active_session["id"], extra_snap_path)
                                 logger.info(f"📸 Captured milestone snapshot at {m}s for {self.active_session['party_code']}")
 
-                        # 4. Fitting Room Detection (Curtain & Mirror zone right side cx >= 0.70, cy >= 0.25)
+                        # 4. Fitting Room Detection (Curtain & Mirror zone strictly on the right edge cx >= 0.86, cy >= 0.45)
+                        # Center jeans folding table is at 0.45 <= cx <= 0.82; it is NOT the fitting room!
                         if self.active_session is not None:
                             for b, cx, cy in customer_boxes:
-                                if ((cx >= 0.70 and cy >= 0.25) or (cx >= 0.65 and cy >= 0.40)) and not self.active_session.get("entered_fitting_room"):
+                                if cx >= 0.86 and cy >= 0.45 and not self.active_session.get("entered_fitting_room"):
                                     self.active_session["entered_fitting_room"] = True
                                     session_mgr.mark_fitting_room_entry(self.active_session["id"])
                                     logger.info(f"🚪 [FITTING ROOM] Customer {self.active_session['party_code']} entered fitting room (cx={cx:.2f}, cy={cy:.2f})!")
@@ -356,34 +366,47 @@ class CameraWorker(threading.Thread):
                             sess_id = self.active_session["id"]
                             party_code = self.active_session["party_code"]
                             
-                            session_mgr.close_session(sess_id, total_dwell_sec)
-                            logger.info(f"🏁 [CUSTOMER VISIT COMPLETED] {self.camera_name} session {party_code} closed. Dwell: {total_dwell_sec}s")
+                            # Strict fact dwell filter: If customer stayed < 8.0 seconds, discard as transient passer-by
+                            if total_dwell_sec < 8.0:
+                                logger.info(f"⏭️ Skipping transient visit (<8s: {total_dwell_sec}s) for {party_code}")
+                                session_mgr.delete_session(sess_id)
+                                try:
+                                    if os.path.exists(self.active_session["clip_path"]):
+                                        os.remove(self.active_session["clip_path"])
+                                    if os.path.exists(self.active_session["snapshot_path"]):
+                                        os.remove(self.active_session["snapshot_path"])
+                                except Exception:
+                                    pass
+                            else:
+                                session_mgr.close_session(sess_id, total_dwell_sec)
+                                logger.info(f"🏁 [CUSTOMER VISIT COMPLETED] {self.camera_name} session {party_code} closed. Dwell: {total_dwell_sec}s")
 
-                            # Send Telegram alert for customers
-                            is_fitting = self.active_session.get("entered_fitting_room", False)
-                            desc = "ลูกค้าเข้าลองกางเกงในห้องลอง (ผ้าม่านขวาล่าง)" if is_fitting else f"ลูกค้าเข้าชมพื้นที่ {self.active_session.get('camera_name', self.camera_name)} (เดินชม)"
-                            send_telegram_alert({
-                                "party_code": party_code,
-                                "people_count": self.active_session["people_count"],
-                                "description": desc,
-                                "pants_touched": 1 if is_fitting else 0,
-                                "entered_fitting_room": is_fitting,
-                                "start_time": self.active_session["start_time"],
-                                "end_time": bkk_str(),
-                                "duration_minutes": round(total_dwell_sec / 60.0, 2)
-                            }, photo_path=self.active_session["snapshot_path"], video_path=self.active_session["clip_path"], is_exit_summary=True)
+                                # Send Telegram alert for customers
+                                is_fitting = self.active_session.get("entered_fitting_room", False)
+                                desc = "ลูกค้าเข้าลองกางเกงในห้องลอง (ผ้าม่านขวาล่าง)" if is_fitting else f"ลูกค้าเข้าชมพื้นที่ {self.active_session.get('camera_name', self.camera_name)} (เดินชม)"
+                                send_telegram_alert({
+                                    "party_code": party_code,
+                                    "people_count": self.active_session["people_count"],
+                                    "description": desc,
+                                    "pants_touched": 1 if is_fitting else 0,
+                                    "entered_fitting_room": is_fitting,
+                                    "start_time": self.active_session["start_time"],
+                                    "end_time": bkk_str(),
+                                    "duration_minutes": round(total_dwell_sec / 60.0, 2)
+                                }, photo_path=self.active_session["snapshot_path"], video_path=self.active_session["clip_path"], is_exit_summary=True)
+
+                                # Auto-sync fact database and clips to GitHub & Cloud
+                                auto_sync_to_github()
 
                             self.active_session = None
                             self.snapped_milestones.clear()
                             self.count_history.clear()
 
-                            # Auto-sync fact database and clips to GitHub & Cloud
-                            auto_sync_to_github()
-
                     time.sleep(0.04)
 
                 cap.release()
-                if self.video_writer is not None:
+                # Do NOT close video writer on stream reconnect unless daemon is stopping or session ended
+                if self.stop_requested and self.video_writer is not None:
                     self.video_writer.close()
                     self.video_writer = None
 

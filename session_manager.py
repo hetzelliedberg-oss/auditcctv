@@ -302,6 +302,13 @@ class SessionManager:
         conn.commit()
         conn.close()
 
+    def delete_session(self, sess_id: int):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sessions WHERE id = ?", (sess_id,))
+        conn.commit()
+        conn.close()
+
     def delete_sessions_by_camera(self, camera_name_or_did: str):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
