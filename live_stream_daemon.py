@@ -449,6 +449,19 @@ def auto_sync_to_github():
             logger.error(f"Auto-sync error: {e}")
     threading.Thread(target=_sync, daemon=True).start()
 
+def start_periodic_cloud_sync(interval_sec: int = 120):
+    """Periodically pushes fresh live camera frames and database to GitHub so Streamlit Cloud stays updated."""
+    def _sync_loop():
+        logger.info(f"☁️ [Cloud Frame Sync] Started periodic sync every {interval_sec}s...")
+        while True:
+            time.sleep(interval_sec)
+            try:
+                cmd = 'git add data/live_cam_*.jpg data/live_camera_frame.jpg data/store_sessions.db; git commit -m "Periodic live frame sync"; git push origin master; git push origin master:main'
+                subprocess.run(cmd, shell=True, capture_output=True, timeout=40)
+            except Exception:
+                pass
+    threading.Thread(target=_sync_loop, daemon=True).start()
+
 def start_self_keep_alive_bot(target_url: str = "https://auditcctv.streamlit.app/_stcore/health"):
     """Internal 24/7 Auto-Bot Trigger that pings Streamlit Cloud to prevent hibernation."""
     def pinger():
@@ -464,54 +477,8 @@ def start_self_keep_alive_bot(target_url: str = "https://auditcctv.streamlit.app
     t = threading.Thread(target=pinger, daemon=True)
     t.start()
 
-class MultiCameraSupervisor:
-    def __init__(self):
-        self.workers = {}
-        self.bot_started = False
-
-    def run(self):
-        logger.info("Starting MultiCameraSupervisor with Auto-Device Discovery...")
-        if not self.bot_started:
-            start_self_keep_alive_bot()
-            self.bot_started = True
-
-        while True:
-            try:
-                online_cams = get_online_cameras(force_refresh=True)
-                # Storefront camera (Video camera2 DID 262682799) is the active store camera
-                # Exclude private home/kitchen/warehouse cameras to completely prevent Mi Home notification spam
-                STORE_DIDS = {"262682799"}
-                active_dids = {c["did"]: c for c in online_cams if c["did"] in STORE_DIDS}
-
-                # Start workers for store camera
-                for did, cam in active_dids.items():
-                    if did not in self.workers or not self.workers[did].is_alive():
-                        is_primary = True
-                        worker = CameraWorker(did, cam.get("name", f"Camera {did}"), is_primary=is_primary)
-                        worker.start()
-                        self.workers[did] = worker
-                        logger.info(f"🌟 Launched worker for store camera: {cam.get('name')} (DID: {did})")
-
-                # Stop workers for cameras that went offline
-                for did in list(self.workers.keys()):
-                    if did not in active_dids:
-                        logger.info(f"Camera DID {did} went offline. Stopping worker...")
-                        self.workers[did].stop()
-                        del self.workers[did]
-
-            except Exception as e:
-                logger.error(f"Supervisor loop error: {e}")
-
-            time.sleep(15)
-
 if __name__ == "__main__":
-    space_host = os.environ.get("SPACE_HOST")
-    if space_host:
-        try:
-            from hf_cloud_sync import start_keep_alive_pinger
-            start_keep_alive_pinger(f"https://{space_host}")
-        except Exception:
-            pass
-
-    supervisor = MultiCameraSupervisor()
-    supervisor.run()
+    start_periodic_cloud_sync(120)
+    logger.info("🚀 Launching Dedicated Storefront CCTV AI Engine for Video camera2...")
+    worker = CameraWorker("262682799", "Video camera2", is_primary=True)
+    worker.run()
