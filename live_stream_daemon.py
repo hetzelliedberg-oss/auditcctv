@@ -22,13 +22,16 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 
-from camera_auto_stream import get_camera_stream_url
+from camera_auto_stream import get_camera_stream_url, stop_camera_stream
 from session_manager import session_mgr
 from video_recorder import H264VideoWriter
 from device_sync import get_online_cameras
 from telegram_alert import send_telegram_alert
 from time_utils import now_bkk, bkk_str, bkk_time_str
 from staff_matcher import staff_matcher
+
+# Ensure OpenCV reconnects cleanly without dropping HLS chunks
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;10000000|reconnect;1|reconnect_streamed;1|reconnect_delay_max;4"
 
 sys.stdout.reconfigure(encoding='utf-8')
 logging.basicConfig(
@@ -119,6 +122,10 @@ class CameraWorker(threading.Thread):
 
     def stop(self):
         self.stop_requested = True
+        try:
+            stop_camera_stream(self.did)
+        except Exception:
+            pass
 
     def run(self):
         logger.info(f"🚀 Started CameraWorker for '{self.camera_name}' (DID: {self.did})")

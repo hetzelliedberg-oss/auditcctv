@@ -48,6 +48,22 @@ def get_camera_stream_url(did: str, force_fresh: bool = False):
         logger.error(f"Error getting HLS stream for DID {did}: {e}")
     return None
 
+def stop_camera_stream(did: str):
+    """Explicitly stops the smart display stream on Xiaomi Cloud to close the session gracefully."""
+    try:
+        execute_api_call("sg", "/miotspec/action", {
+            "data": json.dumps({
+                "params": {
+                    "did": str(did),
+                    "siid": 4,
+                    "aiid": 2,
+                    "in": []
+                }
+            })
+        })
+    except Exception:
+        pass
+
 def add_camera_watermark(img, camera_name: str, did: str):
     """Draws a professional CCTV camera watermark banner with camera name and live timestamp."""
     try:
