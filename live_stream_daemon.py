@@ -122,12 +122,20 @@ class CameraWorker(threading.Thread):
 
     def run(self):
         logger.info(f"🚀 Started CameraWorker for '{self.camera_name}' (DID: {self.did})")
+        stream_url = None
+        connect_fail_count = 0
+
         while not self.stop_requested:
             try:
-                stream_url = get_camera_stream_url(self.did)
+                # Only request fresh URL from Xiaomi Cloud if we don't have one or if previous attempts failed
+                force_fresh = (connect_fail_count >= 3)
+                if not stream_url or force_fresh:
+                    stream_url = get_camera_stream_url(self.did, force_fresh=force_fresh)
+                    connect_fail_count = 0
+
                 if not stream_url:
-                    logger.warning(f"Could not get stream URL for {self.camera_name}. Retrying in 10s...")
-                    time.sleep(10)
+                    logger.warning(f"Could not get stream URL for {self.camera_name}. Retrying in 15s...")
+                    time.sleep(15)
                     continue
 
                 cap = cv2.VideoCapture(stream_url)
@@ -135,10 +143,12 @@ class CameraWorker(threading.Thread):
 
                 ret, _ = cap.read()
                 if not ret:
+                    connect_fail_count += 1
                     time.sleep(3)
                     cap.release()
                     continue
 
+                connect_fail_count = 0
                 logger.info(f"🟢 Connected to live stream for '{self.camera_name}'!")
                 
                 last_frame_save_time = 0
@@ -455,16 +465,19 @@ class MultiCameraSupervisor:
         while True:
             try:
                 online_cams = get_online_cameras(force_refresh=True)
-                active_dids = {c["did"]: c for c in online_cams}
+                # Storefront camera (Video camera2 DID 262682799) is the active store camera
+                # Exclude private home/kitchen/warehouse cameras to completely prevent Mi Home notification spam
+                STORE_DIDS = {"262682799"}
+                active_dids = {c["did"]: c for c in online_cams if c["did"] in STORE_DIDS}
 
-                # Start workers for any newly online cameras (including Video camera2 when turned on)
+                # Start workers for store camera
                 for did, cam in active_dids.items():
                     if did not in self.workers or not self.workers[did].is_alive():
-                        is_primary = (len(self.workers) == 0 or did == "263288748")
+                        is_primary = True
                         worker = CameraWorker(did, cam.get("name", f"Camera {did}"), is_primary=is_primary)
                         worker.start()
                         self.workers[did] = worker
-                        logger.info(f"🌟 Launched worker for camera: {cam.get('name')} (DID: {did})")
+                        logger.info(f"🌟 Launched worker for store camera: {cam.get('name')} (DID: {did})")
 
                 # Stop workers for cameras that went offline
                 for did in list(self.workers.keys()):

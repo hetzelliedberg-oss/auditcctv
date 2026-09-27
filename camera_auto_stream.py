@@ -16,8 +16,16 @@ CLIPS_DIR = "data/clips"
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 os.makedirs(CLIPS_DIR, exist_ok=True)
 
-def get_camera_stream_url(did: str):
-    """Request HLS live stream from Xiaomi Cloud for any camera DID."""
+_stream_url_cache = {}  # did -> {"url": str, "expires": float}
+
+def get_camera_stream_url(did: str, force_fresh: bool = False):
+    """Request HLS live stream from Xiaomi Cloud for camera DID, cached for 10 minutes to prevent Mi Home notification spam."""
+    now = time.time()
+    if not force_fresh and did in _stream_url_cache:
+        cached = _stream_url_cache[did]
+        if now < cached["expires"]:
+            return cached["url"]
+
     try:
         res = execute_api_call("sg", "/miotspec/action", {
             "data": json.dumps({
@@ -32,7 +40,10 @@ def get_camera_stream_url(did: str):
         if res and res.get("code") == 0:
             out_list = res.get("result", {}).get("out", [])
             if out_list and len(out_list) > 0:
-                return out_list[0]
+                url = out_list[0]
+                # Cache URL for 10 minutes
+                _stream_url_cache[did] = {"url": url, "expires": now + 600}
+                return url
     except Exception as e:
         logger.error(f"Error getting HLS stream for DID {did}: {e}")
     return None
