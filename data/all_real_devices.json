@@ -413,8 +413,8 @@
     "adminFlag": 0,
     "shareFlag": 1,
     "permitLevel": 4,
-    "isOnline": false,
-    "desc": "อุปกรณ์ออฟไลน์ มาจากpirun pesee",
+    "isOnline": true,
+    "desc": "อุปกรณ์ออนไลน์ มาจากpirun pesee",
     "extra": {
       "isSetPincode": 0,
       "pincodeType": 0,
@@ -434,7 +434,7 @@
     "rssi": -28,
     "family_id": 0,
     "reset_flag": 0,
-    "internet_ip": "223.24.170.172"
+    "internet_ip": "49.237.181.135"
   },
   {
     "did": "264110651",

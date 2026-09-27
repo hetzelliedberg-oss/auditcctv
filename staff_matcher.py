@@ -65,9 +65,19 @@ class StaffMatcher:
             blue_mask = cv2.inRange(hsv_l, np.array([90, 30, 30]), np.array([140, 255, 255]))
             blue_ratio = float(np.mean(blue_mask > 0))
 
+        # Check red/burgundy top signature (Staff uniform today)
+        red_ratio = 0.0
+        if upper.size > 0:
+            hsv_u = cv2.cvtColor(upper, cv2.COLOR_BGR2HSV)
+            red_mask1 = cv2.inRange(hsv_u, np.array([0, 70, 30]), np.array([14, 255, 240]))
+            red_mask2 = cv2.inRange(hsv_u, np.array([166, 70, 30]), np.array([180, 255, 240]))
+            red_ratio = float(np.mean((red_mask1 > 0) | (red_mask2 > 0)))
+
         clothing_score = 0.0
-        if white_ratio >= 0.22 and blue_ratio >= 0.20:
-            clothing_score = min(1.0, (white_ratio + blue_ratio) * 1.2)
+        if (white_ratio >= 0.20 and blue_ratio >= 0.20) or (red_ratio >= 0.20):
+            clothing_score = 0.90
+        elif white_ratio >= 0.18 or red_ratio >= 0.15:
+            clothing_score = 0.50
 
         # 2. Histogram correlation with loaded staff profiles
         best_hist_score = 0.0
