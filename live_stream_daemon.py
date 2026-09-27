@@ -14,6 +14,7 @@ import time
 import threading
 import logging
 import json
+import subprocess
 from datetime import datetime
 from collections import deque
 import cv2
@@ -325,6 +326,9 @@ class CameraWorker(threading.Thread):
                             self.snapped_milestones.clear()
                             self.count_history.clear()
 
+                            # Auto-sync fact database and clips to GitHub & Cloud
+                            auto_sync_to_github()
+
                     time.sleep(0.04)
 
                 cap.release()
@@ -335,6 +339,18 @@ class CameraWorker(threading.Thread):
             except Exception as e:
                 logger.error(f"Worker exception for {self.camera_name}: {e}")
                 time.sleep(5)
+
+def auto_sync_to_github():
+    """Background thread to push new sessions, clips, and snapshots to GitHub."""
+    def _sync():
+        try:
+            logger.info("☁️ [Auto-Sync] Syncing customer data to GitHub...")
+            cmd = 'git add data/store_sessions.db data/clips/ data/snapshots/ data/live_cam_*.jpg; git commit -m "Auto-record customer visit"; git push origin main'
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=40)
+            logger.info("☁️ [Auto-Sync] GitHub sync completed successfully!")
+        except Exception as e:
+            logger.error(f"Auto-sync error: {e}")
+    threading.Thread(target=_sync, daemon=True).start()
 
 def start_self_keep_alive_bot(target_url: str = "https://auditcctv.streamlit.app/_stcore/health"):
     """Internal 24/7 Auto-Bot Trigger that pings Streamlit Cloud to prevent hibernation."""
