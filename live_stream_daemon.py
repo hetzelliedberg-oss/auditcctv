@@ -145,10 +145,16 @@ class CameraWorker(threading.Thread):
                     time.sleep(15)
                     continue
 
+                time.sleep(2.5)  # Allow Xiaomi cloud transcoder to initialize first HLS chunk
                 cap = cv2.VideoCapture(stream_url)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-                ret, _ = cap.read()
+                ret = False
+                for _ in range(5):
+                    ret, _ = cap.read()
+                    if ret:
+                        break
+                    time.sleep(1.0)
+
                 if not ret:
                     connect_fail_count += 1
                     time.sleep(3)
@@ -168,10 +174,10 @@ class CameraWorker(threading.Thread):
                     ret, raw_frame = cap.read()
                     if not ret or raw_frame is None:
                         fail_count += 1
-                        if fail_count >= 15:
+                        if fail_count >= 35:
                             logger.warning(f"Continuous frame drops ({fail_count}) on {self.camera_name}. Reconnecting...")
                             break
-                        time.sleep(0.05)
+                        time.sleep(0.20)
                         continue
                     fail_count = 0
 
