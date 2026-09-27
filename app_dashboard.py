@@ -20,20 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Auto-start Multi-Camera AI Supervisor in background thread on server startup
-@st.cache_resource
-def ensure_cctv_daemon_running():
-    import threading
-    from live_stream_daemon import MultiCameraSupervisor
-    supervisor = MultiCameraSupervisor()
-    t = threading.Thread(target=supervisor.run, daemon=True)
-    t.start()
-    return supervisor
-
-try:
-    ensure_cctv_daemon_running()
-except Exception:
-    pass
+# Pure Dashboard Presentation Mode (Zero background streaming on Web Cloud)
 
 # Custom Styling
 st.markdown("""
